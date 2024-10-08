@@ -93,7 +93,8 @@ def crossover(parent1,parent2):
     return child1, child2
 
 
-#DEFINIR MUTACION
+
+#En la mutación lo que hago es generar posiciones aleatorias a un agente para que no se base siempre en el padre
 def mutation(agent):
     for _ in range(25):
         position1 = random.randint(0,len(agent) -1)
@@ -110,9 +111,8 @@ def mutation_with_chance(agent,mutation_chance):
     return agent
     
 
-#DEFINIR CROSSOVER POBLACIÓN Y MUTACIÓN
 def replicate(population, mutation_chance):
-    #Mix the population so you dont get the best with the best all the time
+    #Mezclo la población que tengo para ue no se mezclen siempre los mejores con los mejores y luego hago que todos hagan crossover
     random.shuffle(population)
     children = []
 
@@ -125,7 +125,7 @@ def replicate(population, mutation_chance):
 
     return children
 
-#POPULATION SELECTION BY SCORE
+#Filtro la población según el fitness Test para obtener los mejores
 def sort_population(population,fitness_list):
     combined = list(zip(population,fitness_list))
     combined.sort(key=lambda x: x[1])
@@ -133,33 +133,32 @@ def sort_population(population,fitness_list):
 
 def select_population(population,board_size):
     pop_len = int(len(population))
-    #I pick the best results first, the 50% of the population
+    #Elijo al 60% de la población con mejores resultados
     first_half = population[:int(pop_len*0.6)]
 
-    #The worst results of the population, 20%
+    #Elijo el 20% peor de la población
     last_twenty = population[int(pop_len*0.8):]
 
-    #Random population 
+    #Genero población nueva que me ayude a darle variancia a mis resultados para que puedan mejorar 
     immigrants = init_population(pop_len*0.2,board_size)
 
     population[::] = first_half[::]
     population.extend(last_twenty)
     population.extend(immigrants)
 
-    #Lastly i pick a random 30% of the population
     return population
   
 
 def main(population_size,board_size,max_gens,mutation_chance):
-    best_solution = [] # best_solution is a list
+    best_solution = [] 
     population = init_population(population_size,board_size)
+    #Defino un maximo para que no tienda al infinito
     for generation in range(max_gens):
         new_population = replicate(population,mutation_chance)
         population_with_fitness = [(agent,fitness_agent(agent)) for agent in population]
         population_with_fitness.sort(key=lambda x: x[1])
         best_agent,best_fitness = population_with_fitness[0]
-        best_solution.append((best_agent,best_fitness)) # appending a tuple to the list best_solution
-        #best_solution.append(best_fitness)
+        best_solution.append((best_agent,best_fitness)) 
         if best_fitness == 0:
             print(f"Best fitness found {best_fitness}")
             break
@@ -169,9 +168,9 @@ def main(population_size,board_size,max_gens,mutation_chance):
         generation += 1
     perfect_solution = min(best_solution,key=lambda x: x[1])
     best_agent_overall,best_fitness_overall = perfect_solution
-    print(f"Best fitness found: {best_agent_overall}")
+    print(f"Best Agent found: {best_agent_overall}")
     print(f"Best solution found: {int(best_fitness_overall)}")
-    display_agent(best_agent_overall) # best_solution is a list of tuples, you cannot display that directly
+    display_agent(best_agent_overall) 
     return best_solution 
 agent = main(INITIAL_POPULATION,BOARD_SIZE,MAX_GENERATIONS,MUTATION_CHANCE)
 
