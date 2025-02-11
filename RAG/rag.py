@@ -2,7 +2,7 @@ from pinecone.grpc import PineconeGRPC as Pinecone
 from pinecone import ServerlessSpec
 import time
 
-pc = Pinecone(api_key="pcsk_4v9hx7_DhvDqNNZY8zCmqwrs1BmfYz4noUTRoveoqoenXrrDtwoG7WQqFBijwXQYUkeWKH")
+pc = Pinecone(api_key="")
 
 
 # Define a sample dataset where each item has a unique ID, text, and category
