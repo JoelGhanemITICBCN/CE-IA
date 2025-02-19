@@ -1,5 +1,5 @@
 from datasets import load_dataset
-from transformers import AutoModelForQuestionAnswering,AutoTokenizer,pipeline
+from transformers import AutoModelForSeq2SeqLM, AutoModelForQuestionAnswering,AutoTokenizer,pipeline
 from pinecone.grpc import PineconeGRPC as Pinecone
 from pinecone import ServerlessSpec
 from haystack import Document
@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer
 
 tokenizer = AutoTokenizer.from_pretrained("intfloat/multilingual-e5-large")
 
-def chunk_text(text, max_tokens=96):
+def chunk_text(text, max_tokens=364):
     tokens = tokenizer.encode(text,max_length=512,truncation=True,add_special_tokens=False)
     chunks = [tokens[i:i + max_tokens] for i in range(0,len(tokens),max_tokens)]
     return [tokenizer.decode(chunk) for chunk in chunks]
@@ -17,28 +17,31 @@ pc = Pinecone(api_key="")
 
 
 dataset = load_dataset("dmntrd/QuijoteFullText",split="train")
-print("chunked texts")
 chunked_texts =[chunk for doc in dataset for chunk in chunk_text(doc["text"])]
-print(chunked_texts)
 #documents = [Document(content=doc["content"],meta=doc["meta"]) for doc in dataset]
 
 # Convert the text into numerical vectors that Pinecone can index
-model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
+model_name = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+model = SentenceTransformer(model_name)
 embeddings = model.encode(chunked_texts,convert_to_numpy=True)
 
 # Create a serverless index
 index_name = "example-index"
 
-if not pc.list_indexes():
-    pc.create_index(
-        name=index_name,
-        dimension=1024,
-        metric="cosine",
-        spec=ServerlessSpec(
-            cloud="aws", 
-            region="us-east-1"
-        ) 
+existing_indexes = pc.list_indexes()
+
+pc.delete_index(index_name)
+time.sleep(10)
+
+pc.create_index(
+    name=index_name,
+    dimension=768,
+    metric="cosine",
+    spec=ServerlessSpec(
+        cloud="aws", 
+        region="us-east-1"
     ) 
+) 
 
 # Wait for the index to be ready
 while not pc.describe_index(index_name).status['ready']:
@@ -48,7 +51,7 @@ while not pc.describe_index(index_name).status['ready']:
 # In production, target an index by its unique DNS host, not by its name
 # See https://docs.pinecone.io/guides/data/target-an-index
 index = pc.Index(index_name)
-
+print(pc.list_indexes())
 # Prepare the records for upsert
 # Each contains an 'id', the vector 'values', 
 # and the original text and category as 'metadata'
@@ -60,7 +63,8 @@ for i, (d, e) in enumerate(zip(chunked_texts, embeddings)):  # Usa chunked_texts
         "id": str(i),  # Usa el índice como ID
         "values": e.tolist(),  # Convierte a lista si es un array de NumPy
         "metadata": {
-            "source_text": d  # Guarda el fragmento original
+            "source_text": d,  # Guarda el fragmento original
+            "category": "Quijote"
         }
     })
 
@@ -72,50 +76,60 @@ for i in range(0,len(records),batch_size):
     index.upsert(vectors=batch,namespace="example-namespace")
 
 # Define your query
-query = "which is the most interesting aspecto of the main character"
+query = "Describe a Don Quijote"
 
 # Convert the query into a numerical vector that Pinecone can search with
-query_embedding = pc.inference.embed(
-   model="text-embedding-ada-002",
-    inputs=[query],
-    parameters={
-        "input_type": "query"
-    }
-)
+query_embedding = model.encode([query], convert_to_numpy=True)
 
+index_stats = index.describe_index_stats()
+print(index_stats)
+
+if "example-namespace" in index_stats["namespaces"]:
+    print(f"El namespace 'example-namespace' tiene {index_stats['namespaces']['example-namespace']['vector_count']} vectores.")
+else:
+    print("El namespace 'example-namespace' no existe. Intenta indexar de nuevo.")
 
 # Search the index for the three most similar vectors
 results = index.query(
-    namespace="example-namespace",
-    vector=query_embedding[0].values,
-    top_k=3,
+    namespace = "example-namespace",
+    vector=query_embedding[0].tolist(),
+    top_k=25,
     include_values=False,
-    include_metadata=True
+    include_metadata=True,
+    timeout=30
 )
+print("Resultados de busqueda: ",results)
 
+retrieved_docs = []
+for match in results["matches"]:
+    if "metadata" in match and "source_text" in match["metadata"]:
+        retrieved_docs.append({
+            "id":match["id"],
+            "source_text" : match["metadata"]["source_text"]
+            })
 # Rerank the search results based on their relevance to the query
-ranked_results = pc.inference.rerank(
-    model="bge-reranker-v2-m3",
-    query="Health risks",
-    documents=[
-        {"id": "rec3", "source_text": "Rich in vitamin C and other antioxidants, apples contribute to immune health and may reduce the risk of chronic diseases."},
-        {"id": "rec1", "source_text": "Apples are a great source of dietary fiber, which supports digestion and helps maintain a healthy gut."},
-        {"id": "rec4", "source_text": "The high fiber content in apples can also help regulate blood sugar levels, making them a favorable snack for people with diabetes."}
-    ],
-    top_n=3,
-    rank_fields=["source_text"],
-    return_documents=True,
-    parameters={
-        "truncate": "END"
-    }
-)
+if retrieved_docs:
+    ranked_results = pc.inference.rerank(
+        model="bge-reranker-v2-m3",
+        query=query,
+        documents= retrieved_docs,
+        top_n=50,
+        rank_fields=["source_text"],
+        return_documents=True,
+        parameters={
+            "truncate": "END"
+        }
+    )
+    print("Resultados rankeados: ",ranked_results)
+else :
+    print("No hay resultados")
 
 # Search the index with a metadata filter
 filtered_results = index.query(
     namespace="example-namespace",
-    vector=query_embedding.data[0].values,
+    vector=query_embedding[0].tolist(),
     filter={
-        "category": {"$eq": "digestive system"}
+        "category": "Quijote"
         },
     top_k=3,
     include_values=False,
@@ -124,3 +138,25 @@ filtered_results = index.query(
 
 
 print(filtered_results)
+
+relevant_texts = [doc["document"]["source_text"] for doc in ranked_results.data]
+
+gen_model_name="google/flan-t5-large"
+gen_model = AutoModelForCausalLM.from_pretrained(gen_model_name)
+gen_tokenizer = AutoTokenizer.from_pretrained(gen_model_name)
+
+context = "\n\n".join(relevant_texts)
+prompt = f"""
+Context:
+    {context}
+
+Pregunta: {query}
+Genera una respuesta basada en el contexto anterior.
+"""
+
+input_ids = gen_tokenizer(prompt, return_tensors="pt").input_ids
+output = gen_model.generate(input_ids, max_length=200)
+response = gen_tokenizer.decode(output[0], skip_special_tokens=True)
+
+print("\n Respuesta Generada:")
+print(response)
