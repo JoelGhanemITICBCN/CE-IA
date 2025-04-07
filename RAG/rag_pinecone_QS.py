@@ -13,7 +13,7 @@ def chunk_text(text, max_tokens=364):
     tokens = tokenizer.encode(text,max_length=512,truncation=True,add_special_tokens=False)
     chunks = [tokens[i:i + max_tokens] for i in range(0,len(tokens),max_tokens)]
     return [tokenizer.decode(chunk) for chunk in chunks]
-pc = Pinecone(api_key="")
+pc = Pinecone(api_key="pcsk_4v9hx7_DhvDqNNZY8zCmqwrs1BmfYz4noUTRoveoqoenXrrDtwoG7WQqFBijwXQYUkeWKH")
 
 
 dataset = load_dataset("dmntrd/QuijoteFullText",split="train")
@@ -96,7 +96,7 @@ results = index.query(
     top_k=25,
     include_values=False,
     include_metadata=True,
-    timeout=30
+    timeout=50
 )
 print("Resultados de busqueda: ",results)
 
@@ -138,6 +138,8 @@ filtered_results = index.query(
 
 
 print(filtered_results)
+"""
+
 
 relevant_texts = [doc["document"]["source_text"] for doc in ranked_results.data]
 
@@ -146,13 +148,14 @@ gen_model = AutoModelForCausalLM.from_pretrained(gen_model_name)
 gen_tokenizer = AutoTokenizer.from_pretrained(gen_model_name)
 
 context = "\n\n".join(relevant_texts)
-prompt = f"""
-Context:
-    {context}
+#prompt = f0"
 
-Pregunta: {query}
-Genera una respuesta basada en el contexto anterior.
-"""
+""
+#Context:
+    #{context}
+#
+#Pregunta: {query}
+#Genera una respuesta basada en el contexto anterior.
 
 input_ids = gen_tokenizer(prompt, return_tensors="pt").input_ids
 output = gen_model.generate(input_ids, max_length=200)
@@ -160,3 +163,4 @@ response = gen_tokenizer.decode(output[0], skip_special_tokens=True)
 
 print("\n Respuesta Generada:")
 print(response)
+"""
